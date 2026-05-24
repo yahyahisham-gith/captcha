@@ -1,0 +1,1 @@
+import a from"svg-captcha";import{Resvg as i}from"@resvg/resvg-js";const o=r=>{const e=a.create(r),t=new i(e.data).render(),n=t.asPng();return{text:e.text,width:t.width,height:t.height,image:n}},d={create:o};export{d as default};
