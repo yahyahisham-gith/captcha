@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Captcha - Triple Layer</title>
+    
+    <script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    
+    <style>
+        html, body { 
+            margin: 0; padding: 0; width: 100%; overflow-x: hidden;
+            background: #f8f9fa; font-family: 'Segoe UI', sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .card { 
+            background: white; padding: 20px; border-radius: 16px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 90%; 
+            max-width: 400px; text-align: center; border: 1px solid #e9ecef; 
+            box-sizing: border-box; margin: 60px 0 20px 0;
+        }
+        
+        .cdn-section { 
+            background: #eef2f7; padding: 10px; border-radius: 10px; 
+            margin-bottom: 15px; font-size: 13px; color: #555; 
+            border-left: 4px solid #007bff; word-break: break-all;
+        }
+
+        .img-display { 
+            background: #f1f3f5; margin: 15px 0; border-radius: 12px; 
+            padding: 10px; display: flex; justify-content: center; border: 1px solid #dee2e6; 
+        }
+
+        .img-display img { max-width: 100%; height: auto; }
+
+        input, button { 
+            width: 100%; padding: 12px; margin-top: 10px; 
+            border-radius: 8px; border: 1px solid #ced4da; 
+            font-family: inherit; box-sizing: border-box; font-size: 16px;
+        }
+        
+        button { background: #28a745; color: white; border: none; cursor: pointer; font-weight: 600; }
+        .apk-btn { background: #007bff; margin-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn-refresh { background: #6c757d; }
+        .btn-answer { background: #fd7e14; color: white; }
+        
+        .widget-area { margin: 15px 0; display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+        #g-frame { width: 304px; height: 78px; border: none; overflow: hidden; display: block; }
+
+        /* THE OPTIONAL CONTAINER - Now strictly for Turnstile */
+        #optional-captcha-container {
+            width: 100%;
+            min-height: 80px; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #ffffff;
+            border: 1px dashed #ced4da;
+            border-radius: 10px;
+            padding: 10px 0;
+        }
+
+        #turnstile-widget {
+            width: 300px;
+            height: 65px;
+        }
+
+        #ui-overlay {
+            position: fixed; top: 10px; left: 10px; background: #fff;
+            padding: 10px 15px; border-radius: 8px; border: 1px solid #ddd;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 1000; display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-overlay">
+    <small style="color:#007bff; display:block;">Code Found:</small>
+    <b id="ui-data"></b>
+</div>
+
+<div class="card">
+    <div class="cdn-section"><strong>Path:</strong> /cdn/apk</div>
+    <button class="apk-btn" onclick="window.location.href='/cdn/apk/download'">GET APK</button>
+
+    <div class="img-display"><img id="cap-img" src="/api/captcha"></div>
+    <input type="text" id="ans" placeholder="Type the code..." autocomplete="off">
+    
+    <div class="widget-area">
+        <small style="color:#bbb; font-weight:bold;">LAYER 1: HCAPTCHA</small>
+        <div id="h-target"></div>
+    </div>
+    
+    <div class="widget-area">
+        <small style="color:#bbb; font-weight:bold;">LAYER 2: RECAPTCHA</small>
+        <iframe id="g-frame" scrolling="no"></iframe>
+    </div>
+
+    <div class="widget-area">
+        <small style="color:#bbb; font-weight:bold;">LAYER 3: OPTIONAL VERIFICATION</small>
+        <div id="optional-captcha-container">
+            <div id="turnstile-widget"></div>
+        </div>
+    </div>
+
+    <button onclick="verify()">VERIFY ALL LAYERS</button>
+    <div class="grid">
+        <button class="btn-refresh" onclick="refresh()">REFRESH</button>
+        <button class="btn-answer" onclick="getAnswer()">GET ANSWER</button>
+    </div>
+</div>
+
+<script>
+    let hId;
+    let turnstileId;
+    let siteKeys = null;
+    let lastGToken = "";
+    let turnstileToken = "";
+
+    async function init() {
+        try {
+            const res = await fetch('/api/config');
+            siteKeys = await res.json();
+            
+            // 1. hCaptcha
+            hId = hcaptcha.render('h-target', { sitekey: siteKeys.hSite });
+
+            // 2. reCAPTCHA
+            const iframe = document.getElementById('g-frame');
+            const doc = iframe.contentWindow.document;
+            doc.open();
+            doc.write(`<style>body{margin:0;display:flex;justify-content:center;overflow:hidden;}</style><div id="g-box"></div><script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer><\/script><script>window.onload=function(){window.grecaptcha.render('g-box',{'sitekey':'${siteKeys.gSite}','callback':function(t){window.parent.postMessage({gToken:t},'*');}});};<\/script>`);
+            doc.close();
+
+            // 3. Turnstile
+            if (window.turnstile) {
+                turnstileId = turnstile.render('#turnstile-widget', {
+                    sitekey: '0x4AAAAAACggQ5PnFNHQ6x9e', // Test key - replace with yours if needed
+                    callback: function(token) { turnstileToken = token; },
+                });
+            }
+        } catch (err) {
+            console.log("Initialization Error:", err);
+        }
+    }
+
+    window.addEventListener('message', (e) => { if (e.data.gToken) lastGToken = e.data.gToken; });
+
+    async function refresh() {
+        document.getElementById('cap-img').src = '/api/captcha?v=' + Date.now();
+        document.getElementById('ans').value = "";
+        document.getElementById('ui-overlay').style.display = 'none';
+        
+        hcaptcha.reset(hId);
+        lastGToken = "";
+        turnstileToken = "";
+        
+        if(window.turnstile && turnstileId) turnstile.reset(turnstileId);
+
+        init(); 
+    }
+
+    async function getAnswer() {
+        const r = await fetch('/api/solution');
+        const d = await r.json();
+        document.getElementById('ui-data').innerText = d.answer;
+        document.getElementById('ui-overlay').style.display = 'block';
+    }
+
+    async function verify() {
+        const hToken = hcaptcha.getResponse(hId);
+
+        if (!hToken || !lastGToken || !turnstileToken) {
+            return alert("Verification incomplete! Please solve all visible layers.");
+        }
+
+        const res = await fetch('/api/verify', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                input: document.getElementById('ans').value,
+                hCaptchaToken: hToken,
+                recaptchaToken: lastGToken,
+                turnstileToken: turnstileToken
+            })
+        });
+        const data = await res.json();
+        alert(data.msg);
+        if(data.success) refresh();
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>

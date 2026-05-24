@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAPTCHA_TERMINAL_OFFLINE</title>
+    <style>
+        :root { 
+            --neon: #00ff00; 
+            --bg: #0d1117; 
+            --card: rgba(22, 27, 34, 0.95); 
+            --border: #30363d; 
+            --error: #f85149; 
+            --warning: #dbab09;
+        }
+        
+        body { 
+            font-family: 'Consolas', 'Monaco', monospace; 
+            background: #0d1117;
+            color: #c9d1d9; 
+            margin: 0; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh;
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        /* Full Screen Error Overlay */
+        #error-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg);
+            display: none; 
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .error-box {
+            border: 2px solid var(--error);
+            padding: 30px;
+            border-radius: 12px;
+            background: rgba(248, 81, 73, 0.05);
+            max-width: 400px;
+            box-shadow: 0 0 30px rgba(248, 81, 73, 0.2);
+        }
+
+        .container { 
+            background: var(--card); 
+            border: 1px solid var(--border); 
+            width: 100%; 
+            max-width: 500px; 
+            border-radius: 12px; 
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+
+        .top-bar { 
+            color: var(--neon); 
+            font-size: 11px; 
+            margin-bottom: 15px; 
+            display: flex; 
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        /* Captcha Display Area */
+        #captcha-container {
+            background: #fff;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            height: 120px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas { width: 100%; height: 100%; }
+
+        input, button { 
+            width: 100%; 
+            background: #161b22; 
+            color: var(--neon); 
+            border: 1px solid var(--border); 
+            padding: 15px; 
+            border-radius: 6px; 
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 10px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        input:focus { border-color: var(--neon); }
+
+        button { 
+            background: var(--neon); 
+            color: #000; 
+            font-weight: 900; 
+            cursor: pointer; 
+            border: none; 
+            text-transform: uppercase;
+        }
+
+        button:active { transform: scale(0.98); }
+
+        .btn-retry { background: var(--neon); color: #000; }
+        .btn-offline { 
+            background: transparent; 
+            color: var(--warning); 
+            border: 1px solid var(--warning); 
+            margin-top: 15px; 
+        }
+
+        .status-msg { font-size: 10px; margin-top: 10px; color: #8b949e; }
+    </style>
+</head>
+<body>
+
+<div id="error-overlay">
+    <div class="error-box">
+        <div style="color: var(--error); font-size: 1.5rem; font-weight: bold; margin-bottom: 10px;">[!] CONNECTION_LOST</div>
+        <p style="color: #c9d1d9; margin-bottom: 20px;">NO INTERNET CONNECTION DETECTED</p>
+        
+        <button class="btn-retry" onclick="retryConnection()">1: RETRY CONNECTION</button>
+        <button class="btn-offline" onclick="openOfflineMode()">2: OPEN OFFLINE MODE</button>
+    </div>
+</div>
+
+<div class="container" id="app-ui">
+    <div class="top-bar">
+        <span id="mode-id">MODE: LOCAL_CORE</span>
+        <span id="conn-status" style="color: var(--neon);">● ONLINE</span>
+    </div>
+
+    <div id="captcha-container">
+        <canvas id="localCaptcha" width="300" height="120"></canvas>
+    </div>
+
+    <input type="text" id="captcha-input" placeholder="INPUT_SIGNAL_CODE..." autocomplete="off">
+    <button onclick="generateLocalCaptcha()">REFRESH_SIGNAL</button>
+    
+    <div class="status-msg" id="debug-info">SYSTEM_IDLE: WAITING_FOR_INPUT</div>
+</div>
+
+<script>
+    const overlay = document.getElementById('error-overlay');
+    const input = document.getElementById('captcha-input');
+    const canvas = document.getElementById('localCaptcha');
+    const ctx = canvas.getContext('2d');
+    const modeLabel = document.getElementById('mode-id');
+    const statusLabel = document.getElementById('conn-status');
+
+    let secretCode = "";
+
+    // --- CONNECTION LOGIC ---
+    function checkStatus() {
+        if (!navigator.onLine) {
+            overlay.style.display = 'flex';
+        } else {
+            overlay.style.display = 'none';
+        }
+    }
+
+    function retryConnection() {
+        statusLabel.textContent = "● RETRYING...";
+        setTimeout(() => {
+            if (navigator.onLine) {
+                overlay.style.display = 'none';
+                statusLabel.style.color = "var(--neon)";
+                statusLabel.textContent = "● ONLINE";
+            } else {
+                alert("STILL OFFLINE: CHECK NETWORK SETTINGS");
+            }
+        }, 1000);
+    }
+
+    function openOfflineMode() {
+        overlay.style.display = 'none';
+        modeLabel.textContent = "MODE: OFFLINE_RECOVERY";
+        statusLabel.style.color = "var(--warning)";
+        statusLabel.textContent = "● OFFLINE_MODE";
+        generateLocalCaptcha();
+    }
+
+    // --- OFFLINE CAPTCHA GENERATOR ---
+    function generateLocalCaptcha() {
+        const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        secretCode = "";
+        for (let i = 0; i < 5; i++) {
+            secretCode += charset.charAt(Math.floor(Math.random() * charset.length));
+        }
+
+        // Clean Canvas
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Security Noise (Lines)
+        for (let i = 0; i < 10; i++) {
+            ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.3})`;
+            ctx.beginPath();
+            ctx.moveTo(Math.random() * 300, Math.random() * 120);
+            ctx.lineTo(Math.random() * 300, Math.random() * 120);
+            ctx.stroke();
+        }
+
+        // Draw Characters
+        ctx.font = "bold 42px 'Courier New'";
+        ctx.textBaseline = "middle";
+        for (let i = 0; i < secretCode.length; i++) {
+            ctx.save();
+            ctx.translate(40 + (i * 55), 60);
+            ctx.rotate((Math.random() * 30 - 15) * Math.PI / 180);
+            ctx.fillStyle = "#111";
+            ctx.fillText(secretCode[i], 0, 0);
+            ctx.restore();
+        }
+        
+        document.getElementById('debug-info').textContent = "SIGNAL_REFRESHED: " + new Date().toLocaleTimeString();
+    }
+
+    // --- INPUT LOGIC ---
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const val = input.value.toUpperCase().trim();
+            if (val === secretCode) {
+                document.getElementById('debug-info').textContent = "SUCCESS: SIGNAL_MATCHED";
+                document.getElementById('debug-info').style.color = "var(--neon)";
+            } else {
+                document.getElementById('debug-info').textContent = "ERROR: SIGNAL_MISMATCH";
+                document.getElementById('debug-info').style.color = "var(--error)";
+            }
+            input.value = "";
+            generateLocalCaptcha();
+        }
+    });
+
+    // --- INITIALIZATION ---
+    window.onload = () => {
+        generateLocalCaptcha();
+        checkStatus();
+        input.focus();
+    };
+
+    // Listen for real-time connection drops
+    window.addEventListener('offline', checkStatus);
+    window.addEventListener('online', checkStatus);
+
+</script>
+
+</body>
+</html>
